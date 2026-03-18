@@ -400,30 +400,50 @@ def crest_analysis(selected_speeds, sd_type, show_min, show_env):
     from plotly.subplots import make_subplots
     fig = make_subplots(rows=1, cols=2, subplot_titles=['Formula 1 — valid when L ≥ S', 'Formula 2 — valid when L ≤ S'])
     N_arr = make_N_arr()
+    L_max = 0
     for spd in selected_speeds:
         Sv = sd_table[spd][sd_index[sd_type]]
         if Sv is None: continue
         col = SPD_COLORS.get(spd,'#8B949E')
         lbl = f'{spd} km/h  (S={Sv}m)'
-        fig.add_trace(go.Scatter(x=N_arr, y=(N_arr*Sv**2)/denom_crest, mode='lines', name=lbl,
+        Lmin = min_length.get(spd, 0)
+        # F1 — valid for all N, clip to positive
+        L1 = (N_arr * Sv**2) / denom_crest
+        v1 = (L1 >= 0) & np.isfinite(L1)
+        fig.add_trace(go.Scatter(x=N_arr[v1], y=L1[v1], mode='lines', name=lbl,
             line=dict(color=col, width=2), legendgroup=lbl, showlegend=True,
             hovertemplate=lbl+'<br>N=%{x:.5f}<br>L=%{y:.1f}m<extra></extra>'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=N_arr, y=2*Sv - denom_crest/N_arr, mode='lines', name=lbl,
-            line=dict(color=col, width=2), legendgroup=lbl, showlegend=False,
-            hovertemplate=lbl+'<br>N=%{x:.5f}<br>L=%{y:.1f}m<extra></extra>'), row=1, col=2)
+        L_max = max(L_max, L1[v1].max() if v1.any() else 0)
+        # F2 — only valid where L >= 0 and N <= crossover
+        Nx = denom_crest / Sv
+        mf2 = N_arr <= Nx + 1e-9
+        L2 = 2*Sv - denom_crest / N_arr[mf2]
+        v2 = (L2 >= 0) & np.isfinite(L2)
+        if v2.any():
+            fig.add_trace(go.Scatter(x=N_arr[mf2][v2], y=L2[v2], mode='lines', name=lbl,
+                line=dict(color=col, width=2), legendgroup=lbl, showlegend=False,
+                hovertemplate=lbl+'<br>N=%{x:.5f}<br>L=%{y:.1f}m<extra></extra>'), row=1, col=2)
+            L_max = max(L_max, L2[v2].max())
     if show_env:
         S_arr = np.linspace(5,1500,5000)
         Ne = denom_crest / S_arr
         v = (Ne>0)&(Ne<0.30)&np.isfinite(Ne)
-        env_tr = go.Scatter(x=Ne[v], y=S_arr[v], mode='lines', name='L=S boundary',
-            line=dict(color='#C9D1D9', width=1.2, dash='dash'),
-            hovertemplate='L=S<br>N=%{x:.5f}<extra></extra>')
-        fig.add_trace(env_tr, row=1, col=1)
+        ec = COLORS['envelope_line']
         fig.add_trace(go.Scatter(x=Ne[v], y=S_arr[v], mode='lines', name='L=S boundary',
-            line=dict(color='#C9D1D9', width=1.2, dash='dash'), showlegend=False,
+            line=dict(color=ec, width=1.2, dash='dash'),
+            hovertemplate='L=S<br>N=%{x:.5f}<extra></extra>'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=Ne[v], y=S_arr[v], mode='lines', name='L=S boundary',
+            line=dict(color=ec, width=1.2, dash='dash'), showlegend=False,
             hovertemplate='L=S<br>N=%{x:.5f}<extra></extra>'), row=1, col=2)
+    ymax = min(int(L_max * 1.15 / 50 + 1) * 50, 3000) if L_max > 0 else 1500
     layout = dict(**PLOTLY_BASE)
     layout['title'] = dict(text='Formula Analysis — Crest Vertical Curve', font=dict(size=13, color=COLORS['primary']), x=0.02)
+    yax  = {**PLOTLY_BASE['yaxis'],  'range': [0, ymax]}
+    yax2 = {**PLOTLY_BASE['yaxis'],  'range': [0, ymax], 'title': dict(text='')}
+    xax  = {**PLOTLY_BASE['xaxis'],  'range': [0, 0.30]}
+    xax2 = {**PLOTLY_BASE['xaxis'],  'range': [0, 0.30]}
+    layout['yaxis'] = yax; layout['yaxis2'] = yax2
+    layout['xaxis'] = xax; layout['xaxis2'] = xax2
     fig.update_layout(**layout)
     return fig
 
@@ -444,30 +464,50 @@ def sag_analysis(selected_speeds, show_min, show_env):
     from plotly.subplots import make_subplots
     fig = make_subplots(rows=1, cols=2, subplot_titles=['Formula 1 — valid when L ≥ S', 'Formula 2 — valid when L ≤ S'])
     N_arr = make_N_arr()
+    L_max = 0
     for spd in selected_speeds:
         Sv = hsd_table.get(spd)
         if Sv is None: continue
         ds = headlight_factor(Sv)
         col = SPD_COLORS.get(spd,'#8B949E')
         lbl = f'{spd} km/h  (HSD={Sv}m)'
-        fig.add_trace(go.Scatter(x=N_arr, y=(N_arr*Sv**2)/ds, mode='lines', name=lbl,
+        # F1
+        L1 = (N_arr * Sv**2) / ds
+        v1 = (L1 >= 0) & np.isfinite(L1)
+        fig.add_trace(go.Scatter(x=N_arr[v1], y=L1[v1], mode='lines', name=lbl,
             line=dict(color=col, width=2), legendgroup=lbl, showlegend=True,
             hovertemplate=lbl+'<br>N=%{x:.5f}<br>L=%{y:.1f}m<extra></extra>'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=N_arr, y=2*Sv - ds/N_arr, mode='lines', name=lbl,
-            line=dict(color=col, width=2), legendgroup=lbl, showlegend=False,
-            hovertemplate=lbl+'<br>N=%{x:.5f}<br>L=%{y:.1f}m<extra></extra>'), row=1, col=2)
+        L_max = max(L_max, L1[v1].max() if v1.any() else 0)
+        # F2 — only valid where N <= crossover and L >= 0
+        Nx = ds / Sv
+        mf2 = N_arr <= Nx + 1e-9
+        L2 = 2*Sv - ds / N_arr[mf2]
+        v2 = (L2 >= 0) & np.isfinite(L2)
+        if v2.any():
+            fig.add_trace(go.Scatter(x=N_arr[mf2][v2], y=L2[v2], mode='lines', name=lbl,
+                line=dict(color=col, width=2), legendgroup=lbl, showlegend=False,
+                hovertemplate=lbl+'<br>N=%{x:.5f}<br>L=%{y:.1f}m<extra></extra>'), row=1, col=2)
+            L_max = max(L_max, L2[v2].max())
     if show_env:
         S_arr = np.linspace(5,1500,5000)
         Ne = np.array([headlight_factor(S)/S for S in S_arr])
         v = (Ne>0)&(Ne<0.30)&np.isfinite(Ne)
+        ec = COLORS['envelope_line']
         fig.add_trace(go.Scatter(x=Ne[v], y=S_arr[v], mode='lines', name='L=S boundary',
-            line=dict(color='#C9D1D9', width=1.2, dash='dash'),
+            line=dict(color=ec, width=1.2, dash='dash'),
             hovertemplate='L=S<br>N=%{x:.5f}<extra></extra>'), row=1, col=1)
         fig.add_trace(go.Scatter(x=Ne[v], y=S_arr[v], mode='lines', name='L=S boundary',
-            line=dict(color='#C9D1D9', width=1.2, dash='dash'), showlegend=False,
+            line=dict(color=ec, width=1.2, dash='dash'), showlegend=False,
             hovertemplate='L=S<br>N=%{x:.5f}<extra></extra>'), row=1, col=2)
+    ymax = min(int(L_max * 1.15 / 50 + 1) * 50, 3000) if L_max > 0 else 1500
     layout = dict(**PLOTLY_BASE)
     layout['title'] = dict(text='Formula Analysis — Sag Vertical Curve', font=dict(size=13, color=COLORS['warning']), x=0.02)
+    yax  = {**PLOTLY_BASE['yaxis'],  'range': [0, ymax]}
+    yax2 = {**PLOTLY_BASE['yaxis'],  'range': [0, ymax], 'title': dict(text='')}
+    xax  = {**PLOTLY_BASE['xaxis'],  'range': [0, 0.30]}
+    xax2 = {**PLOTLY_BASE['xaxis'],  'range': [0, 0.30]}
+    layout['yaxis'] = yax; layout['yaxis2'] = yax2
+    layout['xaxis'] = xax; layout['xaxis2'] = xax2
     fig.update_layout(**layout)
     return fig
 
